@@ -223,7 +223,24 @@ def normalize_author(author_str: str) -> str:
     if author_str.startswith("{") and author_str.endswith("}"):
         author_str = author_str[1:-1]
 
-    authors = re.split(r"\s+and\s+", author_str, flags=re.IGNORECASE)
+    # Split on " and " at brace depth 0 to preserve corporate authors like {Org and Inc}
+    authors = []
+    depth = 0
+    start = 0
+    idx = 0
+    s_lower = author_str.lower()
+    while idx < len(author_str):
+        ch = author_str[idx]
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+        elif depth == 0 and s_lower[idx:idx + 5] == ' and ':
+            authors.append(author_str[start:idx].strip())
+            start = idx + 5
+            idx += 4
+        idx += 1
+    authors.append(author_str[start:].strip())
     normalized = []
 
     for author in authors:
