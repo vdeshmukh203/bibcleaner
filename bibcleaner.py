@@ -188,7 +188,23 @@ class BibTexParser:
             value_parts.append(char)
             self.pos += 1
 
-        return "".join(value_parts).strip()
+        result = "".join(value_parts).strip()
+        # Strip outermost braces if the entire value is wrapped in them
+        # e.g. "{My Title}" -> "My Title", but "{A} and {B}" stays as-is
+        if result.startswith("{") and result.endswith("}"):
+            depth = 0
+            strip_outer = True
+            for i, c in enumerate(result):
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                if depth == 0 and i < len(result) - 1:
+                    strip_outer = False
+                    break
+            if strip_outer:
+                result = result[1:-1]
+        return result
 
 
 def parse_bibtex(text: str) -> List[BibEntry]:
