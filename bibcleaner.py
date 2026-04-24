@@ -47,6 +47,10 @@ class BibEntry:
         """Extract title."""
         return self.fields.get("title", "").strip()
 
+    def __getitem__(self, index: int):
+        """Allow tuple-style access: [0]=entry_type, [1]=key, [2]=fields."""
+        return (self.entry_type, self.key, self.fields)[index]
+
 
 class BibTexParser:
     """State machine parser for BibTeX format with nested brace support."""
