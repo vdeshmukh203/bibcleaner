@@ -11,13 +11,15 @@ Example usage:
 
 import sys
 import re
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Any, Dict, List, Optional, Tuple, Set
 from pathlib import Path
 from dataclasses import dataclass, field
 import argparse
-from io import StringIO
+
+__version__ = "0.1.0"
 
 __all__ = [
+    "BibEntry",
     "parse_bibtex",
     "normalize_author",
     "normalize_title",
@@ -27,6 +29,21 @@ __all__ = [
     "deduplicate",
     "clean_bibtex",
 ]
+
+
+def _is_fully_wrapped(s: str) -> bool:
+    """Return True if *s* is enclosed in a single matching pair of outer braces."""
+    if not s or s[0] != "{" or s[-1] != "}":
+        return False
+    depth = 0
+    for i, c in enumerate(s):
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        if depth == 0 and i < len(s) - 1:
+            return False
+    return True
 
 
 @dataclass
@@ -214,41 +231,47 @@ def parse_bibtex(text: str) -> List[BibEntry]:
 
 
 def normalize_author(author_str: str) -> str:
-    """Normalize author names to "Last, First" format."""
+    """Normalize author names to "Last, First" format.
+
+    Authors wrapped in braces (e.g. ``{Python Software Foundation}``) are
+    treated as corporate names and preserved verbatim.  Multiple authors are
+    separated by `` and `` at brace-depth 0.
+    """
     if not author_str:
         return ""
 
-    # Strip outer braces if present
     author_str = author_str.strip()
-    if author_str.startswith("{") and author_str.endswith("}"):
-        author_str = author_str[1:-1]
 
-    # Split on " and " at brace depth 0 to preserve corporate authors like {Org and Inc}
-    authors = []
+    # Split on " and " at brace depth 0 so that "and" inside braces (corporate
+    # names like {Smith and Jones Inc.}) is not treated as a separator.
+    authors: List[str] = []
     depth = 0
     start = 0
     idx = 0
     s_lower = author_str.lower()
     while idx < len(author_str):
         ch = author_str[idx]
-        if ch == '{':
+        if ch == "{":
             depth += 1
-        elif ch == '}':
+        elif ch == "}":
             depth -= 1
-        elif depth == 0 and s_lower[idx:idx + 5] == ' and ':
+        elif depth == 0 and s_lower[idx : idx + 5] == " and ":
             authors.append(author_str[start:idx].strip())
             start = idx + 5
             idx += 4
         idx += 1
     authors.append(author_str[start:].strip())
-    normalized = []
 
+    normalized: List[str] = []
     for author in authors:
-        author = author.strip()
+        author = re.sub(r"\s+", " ", author.strip())
         if not author:
             continue
 
-        author = re.sub(r"\s+", " ", author)
+        # Preserve corporate authors that are wrapped in a single pair of braces
+        if _is_fully_wrapped(author):
+            normalized.append(author)
+            continue
 
         if "," in author:
             normalized.append(author)
@@ -325,7 +348,7 @@ def format_entry(entry: BibEntry) -> str:
 
     field_items = list(entry.fields.items())
     for i, (field_name, field_value) in enumerate(field_items):
-        if field_name == "title" and not (field_value.startswith("{") and field_value.endswith("}")):
+        if field_name == "title" and not _is_fully_wrapped(field_value):
             field_value = f"{{{field_value}}}"
 
         is_last = (i == len(field_items) - 1)
@@ -338,7 +361,7 @@ def format_entry(entry: BibEntry) -> str:
     return "\n".join(lines)
 
 
-def deduplicate(entries: List[BibEntry]) -> Tuple[List[BibEntry], Dict[str, any]]:
+def deduplicate(entries: List[BibEntry]) -> Tuple[List[BibEntry], Dict[str, Any]]:
     """Deduplicate BibTeX entries by DOI and normalized title."""
     seen_dois: Dict[str, int] = {}
     seen_titles: Dict[str, int] = {}
@@ -380,7 +403,7 @@ def clean_bibtex(
     input_path: str,
     output_path: Optional[str] = None,
     dedup: bool = True,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """Clean and deduplicate BibTeX entries from a file."""
     input_file = Path(input_path)
     if not input_file.exists():
@@ -424,7 +447,7 @@ def clean_bibtex(
     return report
 
 
-def _print_report(report: Dict[str, any], file=None) -> None:
+def _print_report(report: Dict[str, Any], file=None) -> None:
     """Print a formatted cleanup report to stderr."""
     if file is None:
         file = sys.stderr
@@ -502,6 +525,10 @@ def main() -> int:
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+
+
+# Keep backward-compatible alias for any existing installations
+_cli = main
 
 
 if __name__ == "__main__":
