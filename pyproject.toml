@@ -21,7 +21,11 @@ classifiers = [
 ]
 
 [project.scripts]
-bibcleaner = "bibcleaner:_cli"
+bibcleaner = "bibcleaner:main"
+bibcleaner-gui = "bibcleaner_gui:main"
 
 [tool.setuptools]
-py-modules = ["bibcleaner"]
+py-modules = ["bibcleaner", "bibcleaner_gui"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
