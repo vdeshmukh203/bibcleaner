@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bibcleaner"
-version = "0.1.0"
+version = "0.2.0"
 description = "Parse, normalize, and deduplicate BibTeX bibliography files"
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -12,16 +12,25 @@ authors = [{name = "Vaibhav Deshmukh", email = "vdeshmukh203@gmail.com"}]
 requires-python = ">=3.8"
 keywords = ["bibtex", "bibliography", "latex", "pandoc", "deduplication", "research"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Topic :: Text Processing",
     "Topic :: Scientific/Engineering",
 ]
 
 [project.scripts]
-bibcleaner = "bibcleaner:_cli"
+bibcleaner = "bibcleaner.cli:main"
+bibcleaner-gui = "bibcleaner.gui:launch_gui"
 
-[tool.setuptools]
-py-modules = ["bibcleaner"]
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
