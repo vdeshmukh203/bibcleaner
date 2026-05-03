@@ -22,6 +22,7 @@ classifiers = [
 
 [project.scripts]
 bibcleaner = "bibcleaner:_cli"
+bibcleaner-gui = "bibcleaner_gui:_gui_cli"
 
 [tool.setuptools]
-py-modules = ["bibcleaner"]
+py-modules = ["bibcleaner", "bibcleaner_gui"]
