@@ -4,24 +4,62 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bibcleaner"
-version = "0.1.0"
-description = "Parse, normalize, and deduplicate BibTeX bibliography files"
+version = "0.2.0"
+description = "Parse, normalise, and deduplicate BibTeX bibliography files"
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [{name = "Vaibhav Deshmukh", email = "vdeshmukh203@gmail.com"}]
 requires-python = ">=3.8"
-keywords = ["bibtex", "bibliography", "latex", "pandoc", "deduplication", "research"]
+keywords = [
+    "bibtex", "bibliography", "latex", "pandoc",
+    "deduplication", "research", "reproducibility",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Text Processing",
     "Topic :: Scientific/Engineering",
 ]
+# No third-party dependencies — only the standard library is required.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-cov"]
 
 [project.scripts]
-bibcleaner = "bibcleaner:_cli"
+bibcleaner     = "bibcleaner:main"
+bibcleaner-gui = "bibcleaner.gui:main"
+
+[project.urls]
+Homepage   = "https://github.com/vdeshmukh203/bibcleaner"
+Repository = "https://github.com/vdeshmukh203/bibcleaner"
+Issues     = "https://github.com/vdeshmukh203/bibcleaner/issues"
+
+# ---------------------------------------------------------------------------
+# Package discovery — use the src/ layout for the installable package;
+# the root-level bibcleaner.py is kept as a self-contained fallback script.
+# ---------------------------------------------------------------------------
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.setuptools]
+# Also expose the root-level standalone script as a py-module so that
+# `import bibcleaner` works whether installed from src or used directly.
 py-modules = ["bibcleaner"]
+
+# ---------------------------------------------------------------------------
+# Test configuration
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts   = "-v"
+
+[tool.coverage.run]
+source = ["src/bibcleaner", "bibcleaner"]
