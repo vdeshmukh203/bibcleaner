@@ -1,35 +1,19 @@
 """
-BibTeX cleaner and deduplicator — standalone script and importable module.
+Core BibTeX parsing, cleaning, and formatting logic.
 
-Provides functions to parse, normalise, deduplicate, and format BibTeX
-entries.  Can be used directly as a script, imported as a module, or
-accessed via the ``bibcleaner`` package installed from ``src/``.
-
-Example usage::
-
-    $ bibcleaner input.bib -o output.bib --report
-    $ bibcleaner messy.bib --no-dedup
-
-Python API::
-
-    import bibcleaner as bc
-    entries = bc.parse_bibtex(open("refs.bib").read())
-    report  = bc.clean_bibtex("refs.bib", "refs.clean.bib")
+Provides a robust state-machine parser that handles nested braces, quoted
+values, and escaped characters, along with normalization routines for
+author names, titles, and years.
 """
 
 from __future__ import annotations
 
-import argparse
 import re
 import sys
 from dataclasses import dataclass, field
-from io import StringIO
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
-__version__ = "0.2.0"
-__author__ = "Vaibhav Deshmukh"
-__license__ = "MIT"
 
 __all__ = [
     "BibEntry",
@@ -40,14 +24,10 @@ __all__ = [
     "normalize_year",
     "clean_entry",
     "format_entry",
-    "deduplicate",
     "clean_bibtex",
+    "BibCleaner",
 ]
 
-
-# ---------------------------------------------------------------------------
-# Data model
-# ---------------------------------------------------------------------------
 
 @dataclass
 class BibEntry:
@@ -58,12 +38,12 @@ class BibEntry:
     fields: Dict[str, str] = field(default_factory=dict)
 
     def get_doi(self) -> Optional[str]:
-        """Return the DOI in lowercase, or *None* if absent."""
+        """Return the DOI in lowercase, or None if absent."""
         doi = self.fields.get("doi", "").strip()
         return doi.lower() if doi else None
 
     def get_title(self) -> Optional[str]:
-        """Return the raw title string, or *None* if absent."""
+        """Return the raw title string, or None if absent."""
         title = self.fields.get("title", "").strip()
         return title if title else None
 
@@ -72,16 +52,16 @@ class BibEntry:
         return (self.entry_type, self.key, self.fields)[index]
 
 
-# ---------------------------------------------------------------------------
-# Parser
-# ---------------------------------------------------------------------------
-
 class BibTexParser:
     """
-    State-machine BibTeX parser with nested brace support.
+    State-machine parser for BibTeX format.
 
-    Handles nested braces, double-quoted field values, backslash escapes,
-    and ``%`` line comments.  Malformed entries are skipped gracefully.
+    Handles:
+    - Nested braces in field values
+    - Double-quoted field values
+    - Backslash-escaped characters
+    - ``%`` line comments
+    - Malformed entries (skipped gracefully)
     """
 
     def __init__(self, text: str) -> None:
@@ -90,7 +70,7 @@ class BibTexParser:
         self.entries: List[BibEntry] = []
 
     def parse(self) -> List[BibEntry]:
-        """Parse all ``@type{...}`` blocks from the source text."""
+        """Parse all BibTeX entries from the source text."""
         while self.pos < len(self.text):
             self._skip_whitespace_and_comments()
             if self.pos >= len(self.text):
@@ -101,19 +81,24 @@ class BibTexParser:
                 self.pos += 1
         return self.entries
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
     def _skip_whitespace_and_comments(self) -> None:
         while self.pos < len(self.text):
             ch = self.text[self.pos]
             if ch.isspace():
                 self.pos += 1
             elif ch == "%":
+                # Skip to end of line
                 while self.pos < len(self.text) and self.text[self.pos] != "\n":
                     self.pos += 1
             else:
                 break
 
     def _parse_entry(self) -> Optional[BibEntry]:
-        """Parse one ``@type{key, field=value, ...}`` block."""
+        """Parse one @type{key, field=value, ...} block."""
         if self.pos >= len(self.text) or self.text[self.pos] != "@":
             return None
         self.pos += 1  # consume '@'
@@ -162,15 +147,15 @@ class BibTexParser:
                 # '=' appeared with no preceding name; consume the rogue value
                 # to avoid losing subsequent well-formed fields.
                 if self.pos < len(self.text) and self.text[self.pos] == "=":
-                    self.pos += 1  # skip '='
+                    self.pos += 1
                     self._skip_whitespace_and_comments()
                     self._parse_field_value()  # consume and discard
                 else:
-                    self.pos += 1  # skip unknown character
+                    self.pos += 1
                 continue
 
             if self.pos >= len(self.text) or self.text[self.pos] != "=":
-                # No '=' found; may have hit '}' — let outer loop handle it
+                # No '=' found; might have hit '}' — let outer loop handle it
                 continue
 
             self.pos += 1  # consume '='
@@ -188,11 +173,9 @@ class BibTexParser:
 
     def _parse_field_value(self) -> str:
         """
-        Parse a field value (brace-delimited, quote-delimited, or bare).
-
-        Strips the single outermost brace pair when the entire value is
-        wrapped — e.g. ``{My Title}`` → ``My Title`` — leaving inner
-        brace groups intact.
+        Parse a field value that may be brace-delimited, quote-delimited,
+        or bare.  Returns the content with the outermost single brace pair
+        stripped (standard BibTeX convention).
         """
         value_parts: List[str] = []
         brace_depth = 0
@@ -201,6 +184,7 @@ class BibTexParser:
         while self.pos < len(self.text):
             ch = self.text[self.pos]
 
+            # Backslash escape — consume two characters verbatim
             if ch == "\\" and self.pos + 1 < len(self.text):
                 value_parts.append(ch)
                 value_parts.append(self.text[self.pos + 1])
@@ -225,17 +209,18 @@ class BibTexParser:
                     self.pos += 1
                     continue
                 else:
-                    break
+                    break  # end of enclosing entry
 
             if ch == "," and brace_depth == 0 and not in_quotes:
-                break
+                break  # end of this field
 
             value_parts.append(ch)
             self.pos += 1
 
         result = "".join(value_parts).strip()
 
-        # Strip single outer brace pair when value is wholly wrapped
+        # Strip the single outermost brace pair when the entire value is
+        # wrapped, e.g. "{My Title}" → "My Title"
         if result.startswith("{") and result.endswith("}"):
             depth = 0
             strip_outer = True
@@ -281,7 +266,7 @@ def normalize_author(author_str: str) -> str:
 
     # If the whole string is a single brace group it is a verbatim/corporate
     # author — BibTeX convention for names like "{Python Software Foundation}".
-    # Return with braces stripped but the word order unchanged.
+    # Preserve the braces so word order is not altered.
     if author_str.startswith("{") and author_str.endswith("}"):
         depth = 0
         single_group = True
@@ -294,8 +279,9 @@ def normalize_author(author_str: str) -> str:
                 single_group = False
                 break
         if single_group:
-            return author_str  # preserve braces so word order is not altered
+            return author_str
 
+    # Split on ' and ' at brace-depth 0
     authors: List[str] = []
     depth = 0
     start = 0
@@ -316,7 +302,7 @@ def normalize_author(author_str: str) -> str:
         if not author:
             continue
         author = re.sub(r"\s+", " ", author)
-        # Brace-wrapped individual tokens are also verbatim corporate authors
+        # Brace-wrapped individual tokens are verbatim corporate authors
         if author.startswith("{") and author.endswith("}"):
             normalized.append(author)
             continue
@@ -350,7 +336,7 @@ def normalize_title(title: str) -> str:
             elif ch == "}":
                 depth -= 1
             if depth == 0 and i < len(title) - 1:
-                return title
+                return title  # outer braces don't span the whole string
         if depth == 0:
             return title[1:-1].strip()
     return title
@@ -395,6 +381,8 @@ def format_entry(entry: BibEntry) -> str:
     items = list(entry.fields.items())
     for i, (name, value) in enumerate(items):
         if name == "title":
+            # Ensure title is wrapped in one extra brace layer for case
+            # preservation, unless it already carries a full outer wrap.
             if not (value.startswith("{") and value.endswith("}")):
                 value = f"{{{value}}}"
         line = f"  {name} = {{{value}}}"
@@ -403,62 +391,6 @@ def format_entry(entry: BibEntry) -> str:
         lines.append(line)
     lines.append("}")
     return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Deduplication
-# ---------------------------------------------------------------------------
-
-def deduplicate(
-    entries: List[BibEntry],
-) -> Tuple[List[BibEntry], Dict[str, object]]:
-    """
-    Remove duplicate :class:`BibEntry` objects.
-
-    Two entries are considered duplicates when they share:
-
-    * the same DOI (case-insensitive), **or**
-    * the same normalised title (stripped to lower-case alphanumerics).
-
-    Both checks are applied regardless of whether a DOI is present, so a
-    DOI-bearing entry and a DOI-less entry with the same title are still
-    detected as duplicates.  The first occurrence is always kept.
-
-    Returns
-    -------
-    tuple[list[BibEntry], dict]
-        ``(deduplicated, report)`` — *report* has keys
-        ``total_input``, ``total_output``, ``duplicates_removed``.
-    """
-    seen_dois: Dict[str, int] = {}
-    seen_titles: Dict[str, int] = {}
-    kept: List[int] = []
-    duplicates_removed = 0
-
-    for i, entry in enumerate(entries):
-        doi = entry.get_doi()
-        title = entry.get_title()
-        norm_title = re.sub(r"[^a-z0-9]", "", title.lower()) if title else ""
-
-        if doi and doi in seen_dois:
-            duplicates_removed += 1
-            continue
-        if norm_title and norm_title in seen_titles:
-            duplicates_removed += 1
-            continue
-
-        if doi:
-            seen_dois[doi] = i
-        if norm_title:
-            seen_titles[norm_title] = i
-        kept.append(i)
-
-    deduplicated = [entries[i] for i in kept]
-    return deduplicated, {
-        "total_input": len(entries),
-        "total_output": len(deduplicated),
-        "duplicates_removed": duplicates_removed,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -481,21 +413,22 @@ def clean_bibtex(
         Destination path.  Defaults to ``<stem>.clean.bib`` in the same
         directory as *input_path*.
     dedup:
-        Whether to remove duplicate entries (default ``True``).
+        Whether to remove duplicate entries.
 
     Returns
     -------
     dict
-        Report with keys ``input_file``, ``output_file``,
-        ``initial_entries``, ``cleaned_entries``,
-        ``deduplication_enabled``, and (when *dedup* is true)
-        ``duplicates_removed``.
+        A report dictionary with keys ``input_file``, ``output_file``,
+        ``initial_entries``, ``cleaned_entries``, ``deduplication_enabled``,
+        and (when dedup is True) ``duplicates_removed``.
 
     Raises
     ------
     FileNotFoundError
         If *input_path* does not exist.
     """
+    from .dedup import deduplicate  # local import avoids circular dependency
+
     src = Path(input_path)
     if not src.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
@@ -514,11 +447,12 @@ def clean_bibtex(
     for e in cleaned:
         out_lines.append(format_entry(e))
         out_lines.append("")
+    output_text = "\n".join(out_lines)
 
     if output_path is None:
         output_path = str(src.parent / f"{src.stem}.clean.bib")
 
-    Path(output_path).write_text("\n".join(out_lines), encoding="utf-8")
+    Path(output_path).write_text(output_text, encoding="utf-8")
 
     report: Dict[str, object] = {
         "input_file": str(input_path),
@@ -549,57 +483,32 @@ def _print_report(report: Dict[str, object], file=None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# Object-oriented API
 # ---------------------------------------------------------------------------
 
-def main() -> int:
-    """Command-line interface for bibcleaner."""
-    parser = argparse.ArgumentParser(
-        prog="bibcleaner",
-        description="Clean and deduplicate BibTeX bibliography files.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""Examples:
-  bibcleaner input.bib
-  bibcleaner input.bib -o output.bib
-  bibcleaner messy.bib --no-dedup
-  bibcleaner citations.bib --report
-""",
-    )
-    parser.add_argument("input", help="Path to input .bib file.")
-    parser.add_argument(
-        "-o", "--output",
-        default=None,
-        help="Output path (default: <input>.clean.bib).",
-    )
-    parser.add_argument(
-        "--no-dedup",
-        action="store_true",
-        help="Disable duplicate removal.",
-    )
-    parser.add_argument(
-        "--report",
-        action="store_true",
-        help="Print a summary report to stderr.",
-    )
+class BibCleaner:
+    """
+    High-level interface for cleaning BibTeX files.
 
-    args = parser.parse_args()
+    Parameters
+    ----------
+    dedup:
+        Enable duplicate removal (default ``True``).
 
-    try:
-        report = clean_bibtex(
-            input_path=args.input,
-            output_path=args.output,
-            dedup=not args.no_dedup,
-        )
-        if args.report:
-            _print_report(report)
-        return 0
-    except FileNotFoundError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    except Exception as exc:  # noqa: BLE001
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    Examples
+    --------
+    >>> cleaner = BibCleaner()
+    >>> report = cleaner.clean("refs.bib", output="refs.clean.bib")
+    >>> print(report["duplicates_removed"])
+    """
 
+    def __init__(self, dedup: bool = True) -> None:
+        self.dedup = dedup
 
-if __name__ == "__main__":
-    sys.exit(main())
+    def clean(
+        self,
+        input_path: str,
+        output: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """Clean *input_path* and write the result to *output*."""
+        return clean_bibtex(input_path, output, dedup=self.dedup)
