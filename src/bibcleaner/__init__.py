@@ -1,17 +1,36 @@
 """
 bibcleaner: BibTeX deduplication and normalisation CLI tool.
 
-Parses one or more .bib files, detects duplicate entries by DOI, title
-similarity, and arXiv ID, merges fields from duplicate records, normalises
-author name formatting, journal abbreviations, and page number ranges, and
-emits a cleaned .bib file suitable for use with LaTeX and Pandoc workflows.
+The canonical implementation lives in the top-level ``bibcleaner`` module.
+This package shim re-exports the public API for users who install via the
+``src`` layout.
 """
 
 __version__ = "0.1.0"
 __author__ = "Vaibhav Deshmukh"
 __license__ = "MIT"
 
-from .cleaner import BibCleaner
-from .dedup import deduplicate
+# Re-export public API from the root module
+from bibcleaner import (  # noqa: F401
+    BibEntry,
+    parse_bibtex,
+    normalize_author,
+    normalize_title,
+    normalize_year,
+    clean_entry,
+    format_entry,
+    deduplicate,
+    clean_bibtex,
+)
 
-__all__ = ["BibCleaner", "deduplicate"]
+__all__ = [
+    "BibEntry",
+    "parse_bibtex",
+    "normalize_author",
+    "normalize_title",
+    "normalize_year",
+    "clean_entry",
+    "format_entry",
+    "deduplicate",
+    "clean_bibtex",
+]
